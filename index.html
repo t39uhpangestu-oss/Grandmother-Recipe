@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Grandmother's Recipe: Notes from Buyut</title>
+<meta name="description" content="Catch the ingredients on a torn family recipe. Every finished dish opens a handwritten memory from the great-grandmother who first wrote it down. An endless, warm game about family.">
+<style>
+html,body{margin:0;height:100%;background:#2a1a12;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;font-family:Georgia,'Times New Roman',serif}
+canvas{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:block;background:#2a1a12}
+#mute{position:fixed;top:10px;right:10px;background:rgba(0,0,0,.45);color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:14px;z-index:2;cursor:pointer;font-family:Arial,sans-serif}
+.ov{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);padding:16px;z-index:3}
+.ov.show{display:flex}
+.box{background:#fbf3e4;color:#3a2a1e;border:3px solid #b5703a;border-radius:14px;padding:18px 20px;max-width:440px;max-height:90vh;overflow:auto;line-height:1.5;font-size:16px;font-family:Georgia,serif}
+.box h2{color:#8a4a1e;margin:0 0 8px;font-size:26px}
+.box h3{margin:12px 0 4px;color:#8a4a1e;font-size:18px}
+.box ul{padding-left:20px;margin:6px 0}
+.box p{margin:8px 0}
+#closeHow{background:#b5703a;color:#fff;border:0;border-radius:10px;padding:10px 22px;font-weight:bold;font-size:16px;cursor:pointer;margin-top:10px;font-family:Arial,sans-serif}
+#card{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(40,24,14,.72);padding:14px;z-index:4}
+#card.show{display:flex}
+.paper{background:#fbf3e4;color:#3a2a1e;border:3px solid #b5703a;border-radius:14px;padding:18px 20px;max-width:460px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.paper h2{color:#8a4a1e;margin:0 0 4px;font-size:22px}
+.paper .from{font-style:italic;color:#6a4a2e;margin-bottom:10px;font-size:15px}
+.paper .body{overflow:auto;line-height:1.55;font-size:16px;padding-right:6px;flex:1;min-height:120px;max-height:62vh}
+#cardBtn{background:#b5703a;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:bold;font-size:16px;margin-top:12px;font-family:Arial,sans-serif;cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="mute">Sound: On</button>
+
+<div id="howto" class="ov">
+  <div class="box">
+    <h2>Grandmother's Recipe</h2>
+    <p><b>Short description:</b> A family recipe card was written by Great-Grandma Sri, and it has been passed down ever since. Catch the ingredients in the bowl. Each finished dish opens one of her handwritten memories.</p>
+    <h3>How to play</h3>
+    <ul>
+      <li>The recipe card at the top lists the ingredients you need. Ingredients fall from above.</li>
+      <li>Move the bowl under the ingredients you need. Each one you catch is crossed off the card, and a memory appears.</li>
+      <li>Catch every ingredient on the card to finish the dish. It is served with love, and a memory card from Great-Grandma Sri opens. Tap KEEP COOKING to continue.</li>
+      <li>Memory cards start once you reach 100 points. There are 50 cards, and they appear in random order.</li>
+      <li>Catching the wrong ingredient costs one heart. So does letting a needed ingredient fall past the bowl.</li>
+      <li>You have 3 hearts. When they run out, the family dinner is over. Every 100 points, the recipes grow longer and the ingredients fall faster.</li>
+      <li>The house changes to another room at random every 100 points.</li>
+    </ul>
+    <h3>Controls</h3>
+    <ul>
+      <li>Touch: drag left or right to move the bowl.</li>
+      <li>Mouse: drag left or right with the button held down.</li>
+      <li>Keyboard: Left and Right arrows. Space to start.</li>
+    </ul>
+    <button id="closeHow">GOT IT</button>
+  </div>
+</div>
+
+<div id="card">
+  <div class="paper">
+    <h2 id="cardTitle"></h2>
+    <div class="from">From Great-Grandma Sri, who wrote this recipe</div>
+    <div class="body" id="cardBody"></div>
+    <button id="cardBtn">KEEP COOKING</button>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+// Canvas and fit-to-screen (720x1280 portrait logical size)
+// =====================================================================
+const W = 720, H = 1280;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+cv.width = W; cv.height = H;
+function fit() {
+  const s = Math.min(innerWidth / W, innerHeight / H);
+  cv.style.width = (W * s) + 'px';
+  cv.style.height = (H * s) + 'px';
+}
+addEventListener('resize', fit);
+fit();
+
+const BOWL_Y = 1110;
+const CARD = { x: 60, y: 170, w: 600, h: 300 };
+
+// 5 family keepers, each with a small perk
+const KEEPERS = [
+  { name: 'Grandma',         perk: 'Story hour: every memory caught adds +5 bonus points.', bonus: 5,  bowl: 1,   speed: 1,   follow: 0.2,  hearts: 0, skin: '#f2c9a0', hair: '#d9d9d9', top: '#7a4a6a', extra: 'glasses' },
+  { name: 'Mom',             perk: 'Big bowl: the bowl is 30% wider.',                      bonus: 0,  bowl: 1.3, speed: 1,   follow: 0.2,  hearts: 0, skin: '#e8b890', hair: '#3a2418', top: '#4a7a6a', extra: 'apron' },
+  { name: 'Dad',             perk: 'Steady hands: ingredients fall 20% slower.',            bonus: 0,  bowl: 1,   speed: 0.8, follow: 0.2,  hearts: 0, skin: '#c98a5a', hair: '#1a1410', top: '#3a5a8a', extra: 'cap' },
+  { name: 'Big Sister',      perk: 'Quick hands: the bowl follows your finger faster.',     bonus: 0,  bowl: 1,   speed: 1,   follow: 0.4,  hearts: 0, skin: '#f0cba8', hair: '#6a3a1a', top: '#c26a3a', extra: 'ponytail' },
+  { name: 'Little Brother',  perk: 'Lucky spoon: start with one extra heart.',              bonus: 0,  bowl: 1,   speed: 1,   follow: 0.2,  hearts: 1, skin: '#f5d0b0', hair: '#c9a060', top: '#5a8a4a', extra: 'round' }
+];
+
+// 20 ingredients, each one a memory: [icon, name, memory line]
+const MEMORIES = [
+  ['🌾', 'Flour',    'Flour on the kitchen floor, every Sunday.'],
+  ['🥚', 'Eggs',     'Grandma cracked eggs one-handed, without looking.'],
+  ['🍯', 'Honey',    'Honey on warm bread after school.'],
+  ['🍂', 'Cinnamon', 'The smell of cinnamon filled the whole house at Christmas.'],
+  ['🍎', 'Apple',    'Apples picked from the tree in the backyard.'],
+  ['🥛', 'Milk',     'A warm glass of milk before bed, every night.'],
+  ['🍬', 'Sugar',    'Sugar kisses on the cookies, one for each of us.'],
+  ['🧈', 'Butter',   'Butter melting slowly in the old black pan.'],
+  ['🌼', 'Vanilla',  'The little brown bottle we were never allowed to touch.'],
+  ['🍋', 'Lemon',    'A lemon for every sad day. It always helped a little.'],
+  ['🍚', 'Rice',     'Rice steaming while we told stories at the table.'],
+  ['🧄', 'Garlic',   'Garlic sizzling, and Grandpa pretending he could smell it from the porch.'],
+  ['🥥', 'Coconut',  'Coconut shavings drying on the porch in the sun.'],
+  ['🌶️', 'Chili',    'Chili that made Dad cry happy tears, every single time.'],
+  ['🧂', 'Salt',     'A pinch of salt, thrown over the shoulder for luck.'],
+  ['🌿', 'Herbs',    'Herbs from the little window garden we watered together.'],
+  ['🍞', 'Bread',    'Bread still warm from the oven, torn apart by hand.'],
+  ['🍓', 'Jam',      'Strawberry jam, too sweet, and somehow perfect.'],
+  ['🍵', 'Tea',      'Tea with two sugars and a story that never ended.'],
+  ['🍃', 'Pandan',   'Pandan leaves tied with string, smelling of home.']
+];
+
+// 50 memory cards written by Great-Grandma Sri (about 250 words each)
+const CARDS_DATA = [
+  { title: 'The Recipe I Wrote on the Back of a Calendar', text: "My dearest little ones, I am writing this on the back of an old calendar, because paper was expensive the year I married your great-grandfather. This recipe is for the yellow rice that we ate every time someone was born, every time someone got a new job, and every time someone came home from a long journey. It is simple. You need rice, coconut milk, a few leaves of pandan tied in a knot, a little salt, and most of all patience. Do not rush the rice. The rice will tell you when it is ready, if you listen with your nose and not only with your eyes. I wrote it down because your great-grandfather kept asking me, Sri, how much salt is enough? and I could never answer him. I said a pinch, and he said that is not a measurement. So I made him stand beside me every morning for one whole month. By the end, he could tell the salt by smell alone, and he was very proud of himself. Remember that a recipe is not only a list. It is a small window into the kitchen of someone who loved you enough to stay up late writing things down. Cook it slowly, share it generously, and when you make it, say my name, so the rice remembers too. I kept that calendar in the kitchen drawer for years, and every time I opened it, the smell of pandan reminded me of those early mornings. Your great-grandfather would sit on the step, waiting for the first steam to rise from the pot, and he would say the rice was singing to him. With all my love, Buyut Sri." },
+  { title: 'Five Rupiah for the Best Tomatoes', text: "Every Thursday, I walked to the morning market before the sun was hot. I took the old basket with the broken handle, the one your great-grandfather promised to fix for twenty years and never did. The market was loud, my dears. The fish sellers shouted about their prices, the chicken seller pretended not to hear anyone, and the old woman with the tomatoes always insisted that her tomatoes were the sweetest in the whole city. I never believed her, but I always bought them anyway, because she laughed when I bargained. We bargained every single week for five rupiah, and by the end we were both laughing like children. One morning I asked her why she always made the price so high. She said, Sri, you are the only person who argues with me properly. Everyone else just pays and leaves. I think she was lonely too. So I started bringing her a small cake on Thursdays, and she started giving me an extra tomato for free. This recipe needs those tomatoes. Do not buy the pale ones from the supermarket, because they taste of nothing. Go to the market. Argue a little. Smile a lot. The sambal you make with those tomatoes will taste like friendship, which is the most important seasoning I know. Some Thursdays, the rain made the market muddy and slippery, and the old woman would hold an umbrella over my basket while I counted out the coins. We were both getting older, and we both knew that one day one of us would not be there to argue. That thought made every bargain feel more precious. Love, Buyut." },
+  { title: 'The Burnt Rice Incident', text: "I want to tell you about the day I burnt the rice for the whole family dinner. It was the night of your great-aunt's engagement, and forty people were coming. I was distracted by the radio, which was playing the old songs I loved, and I forgot the pot on the stove. When I finally smelled the smoke, the bottom of the pot was black as the night. I stood there holding the lid, and I started to cry. Your great-grandfather came running from the garden with dirt on his hands. He looked at the pot, looked at me, and then he began to laugh. He laughed so hard he had to sit on the kitchen step. I was furious at first, and then I started laughing too, and soon we were both sitting on the floor with the burnt pot between us. We served the top rice, the part that was not burnt, and we added extra fried shallots and a big pile of sambal. Nobody complained. Your great-aunt told everyone the rice was smoky and special, a family secret. Years later, people still asked me for the burnt rice recipe, and I told them the secret was to forget the rice on purpose, just for a little while, and talk to someone you love. Now you know the real ingredient. Laughter, and a bit of smoke. Your great-aunt still tells everyone that the smoky rice was the best she ever tasted, and she always asks us to burn a little on purpose at every family gathering. We refuse, of course, but every time she tells the story, I see the same bright look in her eyes that I saw on that funny night in the kitchen. Buyut Sri." },
+  { title: 'A Pot for Every Neighbour', text: "When I was young, we had only one large pot in our house, and it was the best pot in the whole village. Whenever someone was sick, or sad, or had a new baby, I cooked in that pot and carried it across the road to their door. The neighbours would open the gate and look surprised, every time, as if no one had ever cooked for them before. This soup is one of those recipes. It is made from chicken, ginger, lemongrass, and a handful of green beans, and it is meant to be shared, not hidden in a container and kept for yourself. I remember Pak Harun, who lived three houses away, a quiet man who worked at the rice mill. When his wife passed away, I stood at his door with the pot and did not know what to say. He looked at the soup for a long time and then said, thank you, Sri. That was all. But every week after that, he brought back an empty pot with a small bunch of flowers from his garden, and a note that said, the soup was warm. These small exchanges kept our village alive, long after the big things were forgotten. So when you cook this soup, make a little extra. Walk it to someone who is alone. Let them see your face, and let them know you thought of them. That is the true recipe, and no paper can hold it. Love, Buyut Sri." },
+  { title: 'Where the Sugar Went', text: "Please forgive me, my children, but I have to confess something about the palm sugar in this recipe. When your grandmother was seven years old, she hid the whole jar of palm sugar under her bed, because she wanted to eat it slowly, one piece every night, like a secret treasure. For a week, the cakes came out tasting like plain flour, and I could not understand why. I searched the kitchen, I searched the pantry, and I even asked the cat, who only looked at me with contempt. Finally, on a Sunday, I heard a crunching sound from her bedroom. I opened the door and there she was, sitting cross-legged on the floor, surrounded by crumbs and a very sticky face. She looked at me with such guilt, and such sweetness, that I could not be angry. I sat down beside her and we ate the rest together, slowly, one piece each, and we talked about her dreams of becoming a teacher. That was the best sugar I have ever tasted. So when you make this cake, remember that sugar is not only for the sweetness. It is for the moments when someone needs to sit with you and be sweet back. Hide a little for your children, if you like. But keep the jar where they can find it. We never told your grandmother that the cat had been sleeping on top of the jar all week. He was the one who had pushed it off the shelf, and he had been waiting for it to fall, the rascal. Even today, she swears that the cat was her accomplice, and he has never once denied it. Love, Buyut." },
+  { title: 'The Rain That Stopped Our Cooking', text: "The monsoon came early one year, and it rained so hard that the path to the kitchen turned into a small river. We had guests coming for the evening meal, two uncles and a cousin who had travelled all the way from the mountains. I was worried, because the wood for the stove was wet, and the charcoal refused to light. Your great-grandfather, who could never light anything in his life, decided to help. He used a newspaper, a bottle of kerosene that should have stayed in the shed, and a long prayer. The stove burst into flame so suddenly that his eyebrows were gone, and he looked like a very surprised owl for the rest of the night. We all laughed until our stomachs hurt. The uncles told stories, the cousin played the old guitar, and the rain kept falling on the tin roof like applause. We ate the soup with cold hands and warm hearts. Nobody remembered the bad food, because the food was simple: rice, egg, and a soup with bitter melon, a little too salty. What people remember is the sound of the rain and the sight of your great-grandfather's eyebrows. So if your stove refuses to cooperate, do not be angry. Invite people in. Let the rain tell its story too. And if you burn something, please do not hide your face. Laugh about it, and share the smoke with someone. The uncles stayed the night on mats in the front room, and the cousin wrote a short song about the rain that made everyone cry with laughter the next morning. We still sing that song at family gatherings, though nobody remembers all the words, and that makes it even more beautiful. Buyut Sri." },
+  { title: 'Learning to Fold the Dumplings', text: "The first time I tried to fold a dumpling, it looked like a little crushed frog, and your great-grandmother, my own mother, took one look at it and sighed in a way that made me feel very small. She was a patient teacher, but patience has limits, and I had reached them. So she sat me down beside her at the wooden table, took my hands in hers, and showed me again, slowly. Pinch the edge, twist once, press firmly, and then breathe. She told me that every dumpling carries a little bit of the cook's mood, so if I was angry, the dumplings would be angry too, and they would split open in the boiling water. I laughed at that, and she pretended to be serious. Over the next months, I folded a thousand dumplings. Some were ugly, some were perfect, and a few were too fat to fit in the pot. Your mother has my hands, and she is still fast at folding, though she claims her dumplings are better than mine, which is not true, but I let her believe it. Teach these dumplings to someone you love. Let them be clumsy. Let them laugh at the frog shapes. Their own dumplings will look more like home every time, and that is the whole lesson. After I learned the technique, my mother let me teach the younger children at the table. Some of their frogs were terrible, and some were surprisingly wise, and every one of them carried a little of our laughter inside. I still think about those small hands pressing the edges, and about how patient we all became together. Love, Buyut Sri." },
+  { title: 'Your Grandfather Stole the Last Piece', text: "Every Eid morning, I made a tray of sweet cookies and put it on the table before the guests arrived. It was a rule in our house that nobody touched the cookies until everyone was seated. Your grandfather, who had the patience of a hungry goat, always tried to break the rule. One year, I counted sixty cookies on the tray, and I was very proud of the tiny round shapes I had pressed with a fork. An hour later, there were only fifty-nine. I looked at every guest, one by one, and they all pointed at your grandfather. He pretended to be shocked, and then he sneakily tried to hide the last cookie in his sleeve. I snatched his hand and found the cookie, slightly squashed, and everyone exploded with laughter. He said the cookie was an offering to the spirits of the kitchen, who were hungry from all our cooking. I said the spirits would have to wait, and he had to apologize to every child in the room. He did, on his knees, with a sugar-dusted face. That was the best Eid we ever had, and I still make the cookies with the same fork, the same tiny pressing, and the same rule. Only now, I hope you will let someone steal the last one. After that Eid, the children waited every year for the moment when the cookie tray was finally empty. They would count the cookies together, shout the number, and then pretend to be shocked when someone was missing one. It became a tradition that nobody wanted to end, even when your grandfather was no longer there to take the blame. Love, Buyut Sri." },
+  { title: 'The Wedding Soup for a Thousand Guests', text: "When your great-aunt married, the whole street was invited, and so was half the city. I was asked to make the soup for the wedding feast, a pot so enormous that we needed two men and a rope to lift it onto the fire. I was terrified. What if it was too salty, or too bland, or too thin for so many people? I spent three nights awake, tasting and tasting, until my tongue was tired and my heart was pounding. On the wedding morning, I stood beside the pot with a wooden spoon in one hand and a prayer in the other. When the first bowl was served to the bride's grandmother, she tasted it, closed her eyes, and said, Sri, this tastes like my own kitchen when I was young. I could have cried. Instead, I laughed and went back to stirring, and by the end of the day, the pot was empty and every guest had asked for the recipe. I wrote it down for each of them on the back of a napkin, which is why this card is stained with a little oil. Cooking for many people is not about perfection. It is about making everyone feel that they are at home. Remember that, and the soup will always be right. At the end of the feast, the two men who lifted the pot were given a bowl each, and they ate standing up, too tired to sit down. One of them told me it was the best soup he had eaten in his whole life, and I believed him, because his eyes were shining with tears and steam. Buyut Sri." },
+  { title: 'The Bus Ride and the Basket of Fish', text: "On the way to the fish market, the bus got stuck in a traffic jam so thick that I could have walked faster. It was hot, the horns were screaming, and a man in the seat behind me kept sighing so loudly that the whole bus joined in. I was holding a basket on my lap, and inside it were four fresh fish I had bargained for, and a bunch of lemongrass that was already wilting in the heat. I decided that the only sensible thing to do was to talk to someone. I turned to the woman beside me, and we started talking about her son, who was studying far away in the capital. By the time the bus reached the market, we had shared our lunch, a pair of stories, and a promise to exchange recipes by letter. Her name was Bu Tini, and she sent me a letter every month for twenty years. The fish went into this soup, and the lemongrass went into the broth, and the whole house smelled like the sea. So when you are stuck in a jam, do not let your heart stay stuck too. Find the person beside you. Ask them about their children. You might end up with a friend, a letter, and a fish soup that tastes of a shared journey. The woman, Bu Tini, came to our house a year later with her son, who had grown tall and serious and very polite. He ate three bowls of the soup and then asked me for the recipe for the lemongrass broth, so he could make it for his own mother when he returned home for the holidays. Love, Buyut." },
+  { title: 'The Cat Who Wanted the Fish', text: "We had a grey cat named Pak Kumis, which means Mr. Moustache, because he had the most dignified whiskers in the village and he knew it. He believed the kitchen belonged to him, and every fish I cleaned was, in his opinion, a gift meant for him personally. One afternoon I left a plate of fried fish cooling on the windowsill, only for a moment, to answer the door. When I came back, the plate was empty, and Pak Kumis was sitting on the table licking his paws with a face of pure innocence. I scolded him, and he looked at me as if I had insulted his family. Then he walked away with great dignity, and the next morning he left a small dead lizard on my doorstep, as a payment, he seemed to think, for the fish. Your great-grandfather laughed for an hour and called the cat a diplomat. We never managed to keep fish away from him, so after that I always cooked an extra piece just for him. This recipe is for fried fish with turmeric and tamarind, and it is good enough to steal. Make a little extra for the cat, and do not be too proud to share with the animals who love your home. Pak Kumis lived to a very old age, and he never once admitted that he had stolen anything. When he finally passed away, the neighbours gathered in our yard and buried him beneath the mango tree. We cooked a small fish in his honour and left a bowl beside the grave, because it felt right to share it with him one last time. Buyut Sri." },
+  { title: 'A Letter Smelling of Home', text: "When your uncle moved across the sea to study, he wrote to me every month, always asking the same question at the end of his letter: Mama, what did you cook today? I started answering him in the letters, describing each dish in careful detail, because I knew that food was the only thing that could travel that far without breaking. I would write about the steam from the rice pot, the sound of the chili being pounded in the stone mortar, and the smell of the garlic that made my eyes water. Each letter took a long time to reach him, sometimes two months, so by the time he read about the soup, I had already cooked it a dozen more times. He once wrote back that he had tried to cook it in his tiny flat, and the smell had made his neighbours knock on the door to ask what was happening. He said he felt less lonely that night. I miss him every single day. So when you cook this soup, write about it, even if you only send the words to yourself. Food is a letter that someone can taste, and it is always, always meant for someone far away. When your uncle finally came home for the first time in many years, he walked into the kitchen, closed his eyes, and breathed in deeply. He did not need to say anything. He only asked for a second bowl of soup, and he sat at the table, smiling, while the rain fell gently outside. With longing and love, Buyut Sri." },
+  { title: 'Grandpa Sang While He Grated Coconut', text: "Every morning, before the rooster woke the whole village, your grandpa sat on a small wooden stool with a coconut grater, and he sang. He had a voice like a rusty gate, and he knew only three songs, which he sang again and again, changing the words whenever he forgot them. I used to wake up to the scraping sound of the grater and his off-key voice, and I would lie in bed and laugh. He said coconut milk tasted better when it was grated to a rhythm. I did not believe him, until I tried it once, with the same song, and found that my hands moved more smoothly and my heart felt light. This is why this recipe calls for freshly grated coconut and not the packaged kind. You need to sit, to sing, and to let your hands find their own beat. When you grate the coconut, sing badly, out loud. Let the children hear you. Someday they will wake up to the sound and remember that someone loved them enough to make breakfast before the sun came up. Your grandpa's three songs are still sung by the grandchildren in the kitchen, although the words have changed many times over the years. Some of them are rude, some of them are silly, and all of them are full of love. Whenever someone grates coconut today, they sing one of those songs, and the whole house starts to smile. Buyut Sri." },
+  { title: 'Teaching Your Father to Cook', text: "Your father did not want to learn to cook. He said that cooking was women's work, and he had far more important things to do, like reading the newspaper and complaining about the price of petrol. I laughed and put a wooden spoon into his hand anyway. The first lesson was boiling water, which he managed to do while watching the television at the same time, and he burned his thumb. The second lesson was frying the onions, and he added so much oil that the kitchen looked like a swamp. By the third week, he could make a simple omelette, though it was always slightly too thick, like a pancake that had been to university. He began to enjoy it, and I saw the stubbornness leave his shoulders. One evening, he made this sambal alone for the first time, and he stood over the mortar pounding the chili with real pride. He said, Mama, I think I can feed a family now. I told him that a family is fed by love first, and sambal second. He never forgot it. Now he is the one who teaches his own children. Teach the people you love something new today, even if they complain. The complaining is part of the recipe. Your father still holds that wooden spoon the way I taught him, with a firm grip and a little bit of pride. He laughs now when he remembers the thick omelettes and the swampy onions. He says those mistakes were the best lessons of his life, and I agree with him completely. Buyut Sri." },
+  { title: 'Dinner for a Stranger at the Bus Station', text: "I once met a young man at the bus station who had been waiting there since the early morning. He had a small suitcase, a torn jacket, and a face so tired that I could not walk past him. I asked him if he had eaten. He shook his head and said that he had enough money for only one thing, either a bus ticket or a meal, and he had chosen the ticket. I did not ask any more questions. I took him to the food stall across the road and bought him a plate of rice with egg and vegetables, the simplest dish in the world. He ate it with his hands, very quietly, and when he finished he said thank you so softly that I almost missed it. He told me he was on his way to find work in another city, and that his mother was waiting for a letter. I gave him a folded paper with my address and asked him to write to me when he arrived. Years later, a letter did arrive. It said that he had found his job, his mother was well, and that the rice tasted like the first kindness he had received in a long time. Feed someone who is hungry, even if you do not know their name. You never know whose life a single plate of rice can change. The stall owner, who had watched the whole thing, refused to take any money from me that evening. He said that a plate of rice shared with a stranger was a blessing for his stall as well. I think about that man often, and about how a small act of kindness can travel far beyond the moment it was given. Love, Buyut Sri." },
+  { title: 'Rice Shared in the Hungry Years', text: "There were years when the rice was thin, when the harvest failed, and when the price in the market rose higher than our hearts could bear. During those years, I cooked the rice in a big pot with more water, so that it stretched further, and I added whatever vegetables the neighbours brought me. Your great-grandfather, who had never been hungry in his life until then, learned a new respect for every grain. He would count the spoonfuls aloud as I served them, and he always gave his own portion to the children first. Nobody asked him to do this. It was simply how he was. I remember one night when there was only enough rice for four people, and we were six at the table. We sat down, prayed, and then your great-grandfather stood up and said he had eaten already, which was a lie, because I had seen him give his plate to the youngest child a moment before. We all pretended not to know. The rice was soft and salty and warm, and it tasted like the most generous meal I have ever eaten. So when you cook this porridge, leave a little for the one who is hungry, even if they never ask. The children grew up knowing the value of every grain, and they never once wasted rice in their own homes. Years later, one of them opened a small restaurant and gave free meals to anyone who could not pay. He said that he learned it from the way his grandfather gave his own plate away, quietly, with no expectation of thanks. Buyut Sri." },
+  { title: 'The Night the Lights Went Out', text: "One night the electricity failed in the middle of cooking the coconut sweets, and the whole street was plunged into darkness. I stood in the kitchen with a single candle and a mixing bowl full of sticky dough, feeling completely helpless. Your great-grandfather appeared with a flashlight that flickered like a dying star, and he said we would finish the sweets by feel. So we did. We rolled the dough by touch, measured the sugar by the handful, and listened to the neighbours singing in the dark street outside. Someone brought out a guitar, and another person started playing a drum made from an empty rice tin. Before long, everyone on the street had gathered at the end of our lane, sharing whatever they had cooked for the day. Ice cubes melted in a bowl. Crackers were passed from hand to hand. The coconut sweets, when we finally steamed them, were a little uneven and wonderfully sweet. That night taught me that light is not only electricity. Sometimes it is a group of people who keep singing when the power is gone. Keep this recipe for the dark nights, and when the lights come back, invite the neighbours over to share it. By the end of the night, the whole street had shared every scrap of food they had, and the coconut sweets were gone within minutes. When the electricity finally returned, the neighbours cheered and blinked at each other, a little embarrassed to be seen smiling so openly, as if they had been caught doing something wonderful. Love, Buyut Sri." },
+  { title: 'Seeds for Your First Birthday', text: "When your mother was born, I wanted to give her something that would grow with her, so I planted a small papaya seed in the back garden on the morning she came home from the hospital. Everyone told me it was foolish, because papaya trees are fickle and take a long time to bear fruit. I did not care. I watered it every morning, and I talked to it, the way I talked to the chickens and the sleepy cat, and I told it about the baby who would one day eat its sweetness. When your mother turned one, the tree was taller than the fence, and it was already flowering. We cut one ripe papaya that year and made a simple dessert with lime and palm sugar, and I fed her the first spoonful myself, with the whole family watching and laughing. Her face turned sour, then sweet, then she demanded more. That tree gave fruit for twenty years. Now I hope you will plant something for your own children. It does not have to be a papaya. It only has to be something you water with patience and love until it is ready to feed them. Your mother still climbs into the branches of that papaya tree whenever she visits, though the trunk is now thick and the fruit is heavy. She says the tree remembers her, and she tells it about her own children in the same gentle voice I once used to speak to the seedling on the morning she came home. Buyut Sri." },
+  { title: 'The Chili That Made Grandpa Cry Happily', text: "Your grandpa believed that anything without chili was a sad, unfinished meal. He liked it so spicy that his nose ran, his eyes watered, and his ears turned red, and he would still ask for more. One day I decided to teach him a lesson, so I made the sambal with twice the chili I usually used. I laughed when I served it, quietly, pretending it was ordinary. He took one bite and went completely silent. His face turned red, then purple, then a strange shade of pink. Tears streamed down his cheeks, and he began to fan himself with the newspaper. I thought he was furious, but then he looked at me, took another bite, and said, Sri, this is the best thing you have ever made. He cried the whole meal, and we all laughed until our stomachs hurt. From that day, the family called it the Happy Tears Sambal, and every birthday he asked me to make it, even though he always cried. The secret of this sambal is not only the chili, but the joy you feel while pounding it together. Pound it with someone you love, and you will understand why people cry happily over food. Your grandpa made the Happy Tears Sambal every year for his grandchildren, watching their faces as they cried and laughed at the same time. He always said that a good sambal should make you feel alive, and that a little tear is the body's way of saying thank you for the flavour. Buyut." },
+  { title: 'Ink That Stayed on My Fingers', text: "The ink on this card has come from my own pen, and it has stained my fingers for as long as I can remember. I have been writing recipes since I was a girl, in small notebooks, on scraps of paper, on the margins of school books, and sometimes on the back of the rent receipts. My teacher once scolded me for filling my exercise book with cooking instructions instead of mathematics. I told her that numbers can measure the rice, but only a recipe can tell you how it should feel. She did not agree, but she tasted my fried tempeh one afternoon and asked for the recipe, and I wrote it down on the back of her attendance list, with a blot of oil in the corner. That is how I learned that a recipe is a kind of letter, and that letters always find their way home if you write them with honest hands. Keep your own recipes, even the messy ones. Write them with ink that stains your fingers. One day, your children will find them, and they will know exactly who was in the kitchen, and how much they were loved. My teacher kept the attendance list with the recipe on its back for the rest of her life, and her students said that she sometimes made the tempeh for them during exam week. The ink stains have faded, but her gift of writing things down honestly has never left the classroom, and it has never left me either. With all my love, Buyut Sri." },
+  { title: 'The Becak Driver Who Knew Every Shortcut', text: "In my younger years, I rode a becak to the market every morning, a little three-wheeled cart with a driver who pedalled with his whole body and talked with his whole heart. His name was Mas Darto, and he could tell you the news of the whole city before the newspaper printed it. He knew which street had the best fried banana, which alley had the sweetest palm sugar, and which corner had a cat with a crooked tail who would steal your sandals if you were not careful. He always took the shortcut through the old mosque garden, even when it was against the rules, and he always winked at the guard, who winked back. One morning he told me he was tired of pedalling, and he wanted to buy a motorbike. I laughed and said that the becak would miss him. He said the becak would not miss him, but I would. He was right. Years later, when his motorbike broke down on the highway, I brought him a plate of fried rice, and he cried like a child. This recipe is for the fried banana with palm sugar that Mas Darto loved so much. Make it for someone who has carried you somewhere important. Mas Darto's motorbike was a cheerful shade of yellow, and he decorated the handlebars with tiny plastic flowers that rattled when he rode over bumps. When he visited me again after the accident, he brought a bag of fried bananas and said that the becak had finally forgiven him for leaving it behind. Love, Buyut Sri." },
+  { title: 'The Kitchen We Left Behind', text: "When your family moved to the city, I packed every pot, every wooden spoon, and every chipped bowl into cardboard boxes, and I labelled them one by one. The last box was the spice box, and I could not bear to close it. I sat on the floor of the empty house with the smell of cumin and turmeric still in the air, and I cried for a long time. The old kitchen had a window that caught the morning light, a crack in the wall shaped like a small bird, and a corner where the cat always slept. I thought I would never cook with the same happiness again. But the new kitchen had a tiny stove and a window that faced a busy road, and the first morning I was there, a neighbour knocked on the door with a basket of eggs. She said, welcome, Sri, we heard you cook beautifully. I did not know what to say. So I cooked her an omelette, and she taught me the shortcut to the new market. The kitchen you leave behind is a place, but the cooking is a person. Take your spices with you, and let your hands make a new kitchen wherever you go. Two years later, we went back to visit the old house, and the new owners had painted the kitchen yellow. The crack shaped like a small bird was still there, and I touched it gently, the way you touch the face of an old friend, and we both laughed at how small the room had become. Buyut Sri." },
+  { title: 'Cooking Through the Flood', text: "The river rose so high one rainy season that it covered the lower fields, and then the lower yards, and finally our kitchen floor. We moved the stove onto a wooden table and cooked standing in water up to our ankles. It was miserable, and it was also strangely funny. Your great-grandfather wore his fishing boots and insisted on stirring the soup from the doorway, because he said the soup needed to see the river. The neighbours came paddling by in a wooden boat, and they shared their rice, their salted fish, and their songs. We ate on the roof, under a blue tarpaulin, with mosquitoes everywhere and the river singing below us. A small child fell asleep on my lap, and I hummed the old lullaby until the water went down. When the flood finally left, the kitchen was covered in mud, and the pots had to be scrubbed three times. But we had learned something important: a meal is not about the room. It is about the people who sit down together, even when the floor is wet and the sky is grey. Cook with the people you love, even when the weather is against you. When the water finally went down, the neighbours came together to clean the lane, and they cooked one enormous pot of soup on the road in front of the church. Everyone brought a little something, a handful of greens or a piece of chicken, and the soup tasted of every family in the village. Buyut Sri." },
+  { title: 'The Soup That Tastes Like Your Laughter', text: "Some recipes are written in the measurements, the minutes, and the heat of the fire. But this soup is written in laughter, and I have never been able to explain it properly to anyone who did not sit at our table. It is a clear chicken soup with carrots, cabbage, and a few slices of ginger, and it tastes the same every time, unless someone in the family has told a joke while the pot was boiling. Then it tastes a little sweeter, a little brighter, a little more like home. Your grandfather once told a joke about a chicken who wanted to become a doctor, and we laughed so hard that he added an extra pinch of pepper by mistake, and the soup became famous at every wedding for the next five years. I believe food remembers what happens around it. If you cook with anger, the soup tastes sharp. If you cook with fear, it tastes thin. But if you cook with laughter, it tastes like the best day of your life. So tell a silly story while the pot is on. Let the children add the salt. Let everyone make a mess. The soup will know. Your grandfather's chicken joke became a family legend, and the children now tell it to their friends at school. The soup at every wedding in our family still carries a little extra pepper, a small reminder of the laughter that made that first famous bowl so unforgettable. Love, Buyut." },
+  { title: 'Two Sisters and the Last Piece of Cake', text: "Your aunts were always fighting over the last piece of anything, but the most famous fight was over a single slice of coconut cake, left on the plate after a family party. Your aunt Lia said she saw it first. Your aunt Wulan said she was older, so the cake was hers by right. They argued for so long that the cake began to dry out, and I finally walked in and cut the slice into two equal pieces, exactly down the middle, with a knife that I had sharpened for the occasion. They looked at me, then at the two pieces, then at each other, and they both burst out laughing so hard that they fell off their chairs. From that day, we had a rule. The last piece of cake is always cut in two, and both sisters have to share it with their own hands. Some nights, they still do it, even though they are grown women with children of their own. This coconut cake is the same cake that caused the war, and the same cake that ended it. Cut it fairly. Share it with a smile. Love always wins against a dry slice of cake. Years after the coconut cake incident, the sisters gave a speech at their own mother's funeral, and they both mentioned the cake. They said that sharing that last piece had taught them everything about love, forgiveness, and the strange joy of giving up something small for someone bigger. Buyut Sri." },
+  { title: 'The Recipe Found Inside the Rice Tin', text: "One summer, I searched for my recipe book for an entire week, and I could not find it anywhere. I turned the whole kitchen upside down. I checked the shelves, the cupboard, the bottom of the bread bin, and even the drawer where the cat liked to sleep. Finally, I found it inside the empty rice tin, folded very small, with a note on top that said, Sri, you must stop losing things. It was your great-grandfather's joke, written in his careful handwriting. He had hidden the book there because he knew I would look everywhere except the rice, which I never threw away until it was completely empty. I was furious for ten minutes, and then I was grateful for the rest of my life. The recipe inside was for a simple rice porridge with sweet potato, and beside it he had written a little line of his own: this is what Sri makes when she is tired, and I love her for it. I still keep that page in my heart. If you lose something important, look in the places you trust most. Sometimes the people who love you have put it there for safekeeping. Your great-grandfather never let me forget that joke, and every time I lost my glasses or my keys, he would calmly point to the rice tin with a twinkle in his eye. That porridge recipe is still my favourite on tired days, and I always add a little extra sugar to remember his handwriting. Buyut Sri." },
+  { title: 'The Funeral Meal We Cooked Together', text: "When your great-grandfather's brother passed away, the whole village came to the house, and we had to feed everyone who came to say goodbye. There were so many people that the kitchen could not hold them, and the courtyard was full of rice pots, bamboo trays, and tired, sad faces. I did not feel able to cook. My hands were shaking, and my heart felt like an empty pot. But the women of the village came one by one and took the spoons from my hand, and they said, Sri, sit down, we have this. They cooked the rice, the chicken, and the vegetables without asking me a single question, and they served the guests with quiet kindness. Only once, late in the night, did one of them bring me a small bowl of warm soup and sit beside me without speaking. That soup was simple, but it held me up like a wall. Grief is heavy, my dears, and it is much lighter when the people around you carry part of it. If someone in your life is hurting, do not wait for them to ask. Bring them a bowl of soup, and sit beside them for a while. You will not need many words. The women who cooked that day still come to my house every year on the anniversary of his passing. They bring a pot of soup and sit with me in the kitchen, and we tell stories about the good days, and we cry a little, and then we eat together, slowly, the way we once learned to do. Buyut Sri." },
+  { title: 'Your First Dish Without Help', text: "I remember the day your eldest cousin cooked his very first meal alone. He was only eleven years old, and he had been watching me cook for years, always standing too close to the stove and asking too many questions. That morning he announced that he would make the fried rice for the whole family. I said yes, but I did not leave the kitchen. I stood in the doorway pretending to read the newspaper, and every few minutes I peeked over the top to see what he was doing. He chopped the onions too thick, he cracked the eggs onto the counter, and he added so much soy sauce that the rice turned almost black. But he was smiling the whole time, and when he presented the plate to the family, his small chest was puffed out like a rooster's. We ate every grain, and we praised every mistake. He still makes that fried rice today, and he still uses too much soy sauce. The first meal you make for others is not supposed to be perfect. It is supposed to make them feel loved. Teach the children to cook, and be ready to eat whatever they bring to the table. Your cousin is now a grown man with a family of his own, and his children ask him to cook fried rice every Sunday. He still adds too much soy sauce, and they still praise every mistake, and he still stands tall when the plates are passed around the table, just as he did that first proud morning. Buyut Sri." },
+  { title: 'The Ladies of the Market and Their Gossip', text: "At the morning market, there was a group of women who sat on low stools beside the vegetable stalls, and they knew everything about everyone. They knew who was engaged, who was secretly moving house, which boy had failed his exam, and which husband had been seen buying flowers for someone who was not his wife. I used to think they were terrible gossips. But one day, when I was feeling lost after a family argument, one of them, Bu Asih, looked at my face and said, Sri, sit down, eat this, and tell me everything. I did. I cried into a bowl of noodle soup in the middle of the market, and the whole group listened without a single rude word. They advised me, they laughed at my foolishness, and they bought me extra spring onions as a gift for being brave. That is what the gossip was really about. It was a web of people who cared about each other's lives, and who turned those lives into shared meals and shared jokes. This soup is the noodle soup we ate that day. Remember that the market is more than a place to buy things. It is a place where people hold each other up. Bu Asih and her friends still meet every morning at the market, sitting on their low stools and sharing news, jokes, and bowls of noodle soup. When I visit them now, they greet me as if I had never left, and they always save me the warmest stool in the row, with a bowl already waiting. Buyut Sri." },
+  { title: 'Sunday Evening Without Him', text: "Every Sunday evening, for many years after your great-grandfather died, I made his favourite dish out of habit, a spicy beef stew with lots of lemongrass and too much pepper, which he loved and I always found a little overwhelming. I cooked it without thinking, the way my hands had learned to do over decades. Then I sat down at the empty chair and realised what I had done. I would cry, and then I would laugh, and then I would cry again. Your uncles and aunts came to visit one Sunday and found me sitting with two bowls of stew, one of them untouched. They did not say anything. They simply sat down in the other chairs and ate with me, and they told stories about their father, who had been loud, funny, and terribly stubborn. By the end of the evening, the second bowl was empty, and so was the pot. I still make the stew on Sundays. The chair is still there, and I still say a little prayer and a small joke for him while the pot simmers. Missing someone is a kind of love that never finishes cooking. Make the dish they loved, and let the people around you help you finish the meal. The stew is still the dish that brings the family together every Sunday. The grandchildren now help chop the lemongrass, and they argue about the pepper, and somehow the empty chair feels a little less empty each time we sit down. Love does not disappear when someone is gone. It simply finds new ways to be shared. With longing and love, Buyut Sri." },
+  { title: 'Satay in the Rain', text: "On rainy evenings, the smell of grilled satay would drift from the back of our house, and the whole lane would come to the fence to see who had started the fire. It was always your great-grandfather, standing barefoot in the mud, fanning the charcoal with a flattened cardboard box, shouting at the rain as if it had insulted him personally. He would not let anyone else touch the skewers. He said the chicken had to be marinated with turmeric, coriander, and a little sugar, and that the meat had to be turned exactly three times, no more and no less. Once a neighbour asked him whether it really mattered, and he said that a skewer turned four times is an unhappy skewer, and unhappy skewers ruin the evening. Everyone laughed, but they also waited patiently for him to finish, and when the satay finally came off the grill, the lane filled with hungry, happy people eating in the drizzle. The peanut sauce was made in my stone mortar, and it was thick, sweet, and spicy. Keep your skewers happy, my dears. Turn them with care, and share them with the whole lane, rain or no rain. The neighbours still tell the story of the barefoot man and his cardboard fan, and they still try to imitate the way he shouted at the sky. Nobody in the lane has ever managed to turn the skewers exactly three times, though many have tried, and the attempts always end with laughter and a plate of satay passed over the fence. Buyut Sri." },
+  { title: 'Cookies for the Neighbours Across the Road', text: "The Christmas season was a time when our whole street smelled of butter and cinnamon. Our family baked the cookies every year, and we always made extra for the neighbours across the road, who were a family of kind Catholics who had lived there longer than us. They made us a cake every Eid, and we made them cookies every December. It was a simple exchange of sweetness, and it was one of the best things in our lives. One year, a little girl from their house knocked on our door, shy and grinning, and asked if we could teach her how to shape the cookies into stars. We spent the whole afternoon at the kitchen table, flour on our faces, her tongue poking out in concentration. Her stars came out lopsided, and she was so proud of them that she gave one to every person in the house. Faith is a beautiful thing when it is shared through the hands and the oven. This cookie recipe is for everyone who knocks on your door, no matter which holiday they are celebrating. Share generously. The little girl who learned to shape the stars is now a teacher at the local school, and every December she brings a tray of lopsided stars to the classroom. She tells the children that the best recipes are the ones shared across fences, and she always leaves one cookie for the teacher's lounge, just as we did. Love always, Buyut Sri." },
+  { title: 'The Bread That Refused to Rise', text: "I tried to make bread once for your great-grandfather's birthday, using a flour that I bought from a stranger on the street. I kneaded it for an hour, I talked to it, I covered it with a warm towel, and I placed it beside the stove like a sleepy kitten. The dough did not rise. It just sat there, flat and sulky, like a bored guest who would not leave the party. I was so disappointed that I almost threw it out. But your great-grandfather came in, looked at the dough, poked it with one finger, and said, it is tired, Sri, let it sleep. So he took the bowl to his own room, put it beside his pillow, and sat with it for the rest of the afternoon, reading his newspaper aloud to it. By evening, the bread had doubled in size. We baked it that night, and it was soft, golden, and slightly crooked, just like the man who had saved it. Sometimes what you need most is not more effort. It is a little rest, a little warmth, and someone who believes you can still rise. Your great-grandfather still reads the newspaper aloud to bread dough whenever he makes it, and he insists that the words help it rise. Nobody has ever proven him wrong, and the loaves always turn out soft and golden, as if they were listening carefully to every headline and every silly joke. Buyut Sri." },
+  { title: 'A Goat Soup for the Village Feast', text: "When the village held its big feast after the harvest, every family was asked to bring one dish. My family was in charge of the goat soup, which is a rich, warm broth with ginger, pepper, and a little bit of lime leaf, and it takes the whole day to make properly. We started before sunrise. The men slaughtered the goat behind the shed, and the women cleaned it in the river, and the children chased the chickens around the yard. By the afternoon, the kitchen was full of steam, and everyone wanted to taste the broth. I stood by the pot, tasting it every hour, adjusting the salt, and telling the young girls how to chop the herbs so the pieces would not be too big. The old men came to watch, and they argued about the pepper. The village chief declared it the best soup in the valley, and then asked me, very politely, if I could make it again next year. I said yes, of course, but only if he promised to help with the goat. He did. Community is the most important ingredient in any soup. The village chief kept his promise and helped with the goat every year after that. He became the loudest man in the kitchen, insisting on tasting everything twice and arguing about the pepper, and the children loved him for it, even though he was never quite as good at chopping the herbs. Buyut." },
+  { title: 'The Grandson Who Put Sugar in Everything', text: "Your youngest cousin was convinced that sugar made everything better. He put sugar on his rice, on his fried tempeh, on his soup, and once, to the horror of the whole family, on his fish. We tried to explain that salt and sugar have different jobs, but he was stubborn, and he said that the world was sweeter than we gave it credit for. One afternoon I let him cook his own lunch, and he came back with a plate of rice, fried egg, and a very sugary sambal. Everyone pretended to be brave and tasted it. Surprisingly, the sweetness worked, in a strange way, because the sambal was also full of tamarind and lime, and it made the whole plate taste like a holiday. I told him that a good cook listens to the ingredients, and his ingredients were telling him they liked a little sweetness. He grinned from ear to ear. He still puts sugar on everything, and we still pretend to be horrified. But now, when I cook, I always leave a tiny spoon of palm sugar in the corner of the pot, in his honour. Let the young ones experiment. You may be surprised by what they discover. He is a grown man now, and he still puts a little sugar on his fried tempeh whenever he comes to visit. He has opened a small kitchen of his own, and his customers say his sambal is sweeter than anywhere else in the city. I think he has finally found the balance he was looking for. Buyut Sri." },
+  { title: 'The Restaurant That Almost Closed', text: "Many years ago, a friend of mine opened a small restaurant on the corner of the market, and for the first six months, nobody came. She was desperate. Her savings were gone, the rent was due, and she had started to wonder whether she should give up. I visited her one evening with a basket of my own homemade pickles and a pot of soup. I told her that she had nothing to lose by inviting people to taste her food, even if it was only for free. So she set out the soup on the counter, with a little sign that said, taste it and tell me the truth. The first customer was a shy student who came in for a glass of water and stayed for three bowls. He told his classmates, and the next day the restaurant was full. Within a year, she had a line outside every morning. Her secret was simple. She cooked each dish as if it were for her own family, and she never let a customer leave without a smile. This soup is the same one she served on that first night. Share your food freely, and the world will find its way to your door. Today, her restaurant is one of the most loved places in the market, and she still sets a bowl of soup on the counter for anyone who looks tired. The little sign that once said taste it and tell me the truth is still hanging above the door, faded but proudly kept. Buyut Sri." },
+  { title: 'The Secret Ingredient Is Patience', text: "People often ask me what the secret ingredient is in our family recipes, and they are always disappointed when I say patience. They want something exotic, a rare spice from a faraway island, or a magical herb from the mountains. But patience is the truest secret I know. Slow-cooked rice tastes better than rushed rice. Caramelised onions take twenty minutes of stirring, and they cannot be hurried by a loud voice or a hot pan. Coconut milk that is squeezed too fast becomes thin and sad, but milk that is squeezed gently, with a little warm water, becomes rich and silky. I learned this from my own grandmother, who never once raised her voice in the kitchen, even when the fire was too hot and the cat was stealing the fish. She would simply sit down, wait, and let the food speak. So if you want the secret, here it is. Turn down the heat. Put down the phone. Breathe slowly. The food will be ready when you are. Patience is the seasoning that makes every other ingredient sing. When my own grandchildren ask me for the secret, I still say patience, and they still roll their eyes. But last week, one of them stayed with me in the kitchen for an entire afternoon, stirring the onions without complaint, and when we finally tasted the dish together, she said, Buyut, now I understand what you meant. I think patience is also the reason our family has lasted so long, because every generation has had to wait for something precious to ripen. Love, Buyut Sri." },
+  { title: 'The First Meal for a New Mother', text: "When your cousin had her first baby, the whole family gathered at her house to help, and I was given the honour of cooking the special meal that new mothers need to recover their strength. In our tradition, this is a warm, nourishing chicken soup with herbs, ginger, and a little bit of turmeric, and it is believed to bring back the energy that a mother gives up during childbirth. I cooked it for three hours, with the windows open and the baby crying softly in the next room. When I brought the bowl to her, she was exhausted, pale, and shaking, but she smiled at me with tears in her eyes and said, Buyut, this tastes like being looked after. I sat beside her and held her hand while she ate. I told her that she would be the best mother in the world, not because she was perfect, but because she was willing to learn every single day, just like the rest of us. We all learn to cook by making mistakes, and we all learn to love by making mistakes too. Feed the new mothers in your life, and let them rest. Your cousin's baby is now a bright, curious child who loves to sit in the kitchen and watch the steam rise. Every time I make the chicken soup, I think of that first night, and I remember how a small bowl of warmth can help a tired heart find its strength again, one spoonful at a time. Buyut Sri." },
+  { title: 'The Recipe Lost in the Flood Returned in a Letter', text: "After the great flood, I lost almost everything in the house, including the old wooden box where I kept my recipes. The water rose so quickly that I could only carry the baby and the rice sack to the roof. When the waters finally went down, I searched the mud for days, digging through the remains of the kitchen with my bare hands. I found a few broken pots and one charred wooden spoon, but the recipe box was gone, and with it, so many of the dishes that I had been cooking since I was a girl. I cried, and I felt that a part of me had washed away with the river. Months later, a letter arrived from a woman in the next province. Her husband had found the box floating downstream and had kept it dry for a year, waiting for someone to claim it. She had copied out every recipe in her own handwriting, with a note at the end that said, I hope you find your way back to your kitchen. I did. Keep copies of your recipes, my dears, and share them with people you trust. Memory is fragile, but kindness can carry it across rivers. I still have the copied recipes, carefully written in a stranger's handwriting, and I keep them beside my own old notebook. Every time I open the two together, I think of the husband who saved the box and the woman who copied it, and I feel that the kitchen is larger than any single house. Buyut Sri." },
+  { title: 'The Recipe Written on a Napkin', text: "I wrote this recipe on a paper napkin during a wedding dinner, because I had run out of notebooks and the bride's mother was asking me for the secret of the coconut sauce. The napkin is thin and stained with turmeric, and the ink has spread a little in the corners, but I have kept it in the wooden box for more than forty years. The sauce is simple: fresh coconut milk, palm sugar, a few slices of galangal, two bay leaves, and a pinch of salt. You must stir it constantly, or it will split and turn grainy, and then no amount of cleverness will save it. The bride's mother did not believe that a napkin could hold such an important recipe, and she laughed at me. But when she tasted the sauce that evening, she went quiet, then she asked to keep the napkin. I told her she could copy it, but the napkin had to stay in the family, because it was the first recipe I ever wrote for a stranger who became a friend. Years later, her daughter came to visit and showed me a photograph of the same napkin, framed on her kitchen wall, with a small note beneath it that said, our family's coconut sauce begins here. I cried, of course. Some recipes are written on paper, some on napkins, and some on the memories of the people who share them. Write yours down today, even on something small. Love, Buyut Sri." },
+  { title: 'Iftar Soup for Anyone Passing By', text: "During the fasting month, our house was always open at sunset. When the call to prayer sounded, the door was left unlatched, and a pot of warm soup was placed on the table, with a basket of dates, a jug of sweet tea, and a plate of fried shallot fritters. We never asked who came in. Some were neighbours, some were workers from the road, some were strangers with dusty feet and tired eyes. Once a young boy came in alone, too shy to speak, and I gave him a bowl of soup and a date and told him that he was welcome here. He ate in silence, then looked up and said, my mother is also fasting, and she is alone tonight. I packed a container of soup for her, and I sent the boy home with a promise that we would visit her the next morning. We did, and she became one of my dearest friends. The soup itself is simple: chicken, carrots, celery, a little tomato, and a pinch of white pepper. But the real ingredient is the open door. Keep your door open for those who are hungry, even if they do not knock. The boy who came alone that evening now runs a small mosque kitchen that feeds the poor during the fasting month. He tells everyone that it began with a bowl of soup and an open door, and that the most important ingredient is always the willingness to welcome a stranger into your home. Love, Buyut Sri." },
+  { title: 'Afternoon Tea and the Stories That Followed', text: "Every afternoon at four o'clock, the kettle went on, and the whole family gathered around the kitchen table with glasses of sweet tea and a plate of fried bananas. This was the time for stories. Your great-grandfather told tales of the old days when he rode a bicycle through the rice fields to visit his cousins. Your aunt told us about the teacher who hated mathematics so much that she taught the class through songs. Your uncle told the same joke every week, and we pretended to laugh for the first time, every time. The tea was always too sweet, because your great-grandfather liked three spoons of sugar, and he had convinced everyone that the sugar made the stories better. I think he was right. Tea is not really about the drink. It is about the minutes when everyone stops rushing and simply listens to one another. So put the kettle on this afternoon. Pour a glass for the person who needs to talk, and let the stories begin. Your great-grandfather still told the same three stories every afternoon, but the children never grew tired of them. They knew every pause, every laugh, and every exaggerated gesture, and they would shout the punchlines before he could say them, which made him laugh louder than the tea ever did. Those afternoons taught the children that the best conversations happen when nobody is in a hurry, and that a glass of sweet tea can hold an entire family together. Buyut Sri." },
+  { title: 'The Mango Tree We Planted Together', text: "The mango tree behind our house was planted by your great-grandfather and me on the day we moved in, a tiny sapling wrapped in a wet cloth that he carried on his shoulder like a sleeping child. For the first five years, it gave nothing but leaves, and everyone told us we had wasted our time. We did not care. We watered it, we pruned it, and we told it our plans for the house, the children, and the future. In the sixth year, it blossomed, and the whole garden filled with a sweet, heavy scent that made the bees dizzy. Then came the mangoes, golden and fragrant, so many that we gave them away to every neighbour in the lane. From those mangoes I made this dessert, a simple chilled mango pudding with coconut milk and a little bit of lime zest. It is the most cheerful thing I have ever served, and it always makes people smile before they have even tasted it. Plant something with the people you love. It may take years to give fruit, but the waiting is part of the sweetness. Many years later, the mango tree was struck by a storm and lost one of its largest branches. We were sad, but the next season it bloomed again, stronger than before, and the children climbed carefully into its branches to pick the fruit. The tree had learned to grow around its wounds, just as we had. Love, Buyut Sri." },
+  { title: 'The Wedding Feast Your Cousin Remembered', text: "When your eldest cousin married, I cooked for three days, which was the amount of time it took to prepare the feast for three hundred guests. Every dish came from a family recipe: the fragrant yellow rice, the spicy beef rendang, the chicken curry with potatoes, the vegetable salad with peanut dressing, and the sweet sticky cakes that had been made in our family since before anyone could remember. On the wedding day, I stood in the kitchen with a tired body and a full heart, watching the young women carry the bowls out to the courtyard. The bride came in to thank me, and she told me that her favourite memory of the whole day was not the ceremony, nor the dancing, but the smell of the rendang drifting across the garden in the afternoon. She said it reminded her of every childhood visit to my house. I cried a little, and then I laughed, because she was already planning to make the rendang for her own children. Some recipes are wedding gifts, and some are simply the promise of many more meals together. The bride's children now make the rendang themselves for every family celebration. They stir it slowly, the way I taught her, and they tell their friends that the recipe came from a great-grandmother who believed that every feast should taste like a homecoming for someone. The bride's mother thanked me for the rendang, and then she asked if she could have the recipe written in my own hand, so the family would never forget the way it was made. Buyut Sri." },
+  { title: 'Making Tempeh Together on a Sunday', text: "Tempeh is one of the great treasures of our kitchen, and making it is a patient, slow, joyful job. Every Sunday, when the family was free, we gathered around the big wooden table to soak the soybeans, remove their skins, and mix them with the starter. Your great-grandfather would sit in the corner with a cup of coffee, supervising the process and pretending he was the expert, while your mother and aunts did all the work. The children would wrap the mixture in banana leaves and poke small holes in them for air, and they would argue about who had the best wrapping technique. Then we would place the packages in a warm corner of the house and wait, sometimes for two whole days. When the tempeh finally turned white and firm, the whole house smelled of mushrooms and earth, and we all felt like we had created something together. Fried tempeh with sweet soy sauce was the reward. Make it with your children on a quiet weekend. Wait patiently. Smell the house change. Your great-grandfather's coffee cup still sits in the corner of the kitchen, though it has been empty for years. The children still argue about the banana-leaf wrapping, and they still wait for the tempeh to turn white, and every Sunday, when the house smells of earth and mushrooms, I feel that he is sitting there, grinning. Every child in our family has been told, at least once, that the best tempeh is made with patience, a warm corner, and a grandfather who insists he knows more than anyone else. Buyut Sri." },
+  { title: 'Letters Written in the Margins of a Cookbook', text: "Your grandmother was never much of a reader, but she loved the cookbook I kept on the kitchen shelf, the one with a cracked red cover and pages full of stains and notes. One evening, I found her sitting at the table with a pencil, carefully copying words from the margins of my recipes. She was trying to read the notes I had written to myself, such as, add more salt, the cat is watching, and do not forget to call Aunt Ratna. She had been teaching herself to read through my handwriting, and she was determined to finish the whole book before the end of the year. I was so moved that I could hardly speak. I sat beside her and helped her with the difficult words, and we spent the evening reading recipes aloud, laughing at the silly notes, and planning which dish she would cook first. She learned to read that year, and she became the best cook in the family, with the neatest handwriting in the entire village. Write your notes in the margins, and let them be read by the ones you love. Your grandmother later wrote her own notes in the margins of the cookbook, in neat, careful handwriting. She added silly reminders, like keep the cat away from the fish and call your sister before the pot boils over. The book is now a family treasure, full of two generations of voices. Buyut Sri." },
+  { title: 'A Neighbour Child Who Learned by Smelling', text: "There was a boy in our lane named Adi, who could not see very well, and who spent most of his afternoons sitting on our front step, listening to the sounds of the kitchen. He was not sad about his eyes. He simply had a different way of knowing the world. He could tell from the sound of the knife whether the onion was finely chopped or roughly cut. He could smell the moment the garlic turned golden, long before I did. I began to teach him to cook, and I let him feel the ingredients with his fingers, taste the sauces with his tongue, and listen to the bubbling of the pot. He became a remarkable cook, and he could make a whole meal without ever looking at the recipe. He told me once that the kitchen was the only place where he never felt limited, because every dish spoke to him in its own language. He grew up to open a small food stall at the market, and his soups are still famous in the village for their perfect balance. Remember that everyone experiences food differently, and that a good cook learns to listen to the ingredients with every sense. Adi still visits me when he comes back to the lane, and we cook together in silence, listening to the bubbling pots and the scrape of the knife. He tells me that the kitchen is the place where he has always felt most at home, and I believe him, because I can hear the joy in every sound he makes. Buyut Sri." },
+  { title: 'Porridge on the Rainy Morning', text: "On the rainiest mornings of the year, when the sky was grey and the roof leaked into three different buckets, I made a simple porridge of rice, palm sugar, and a little grated ginger, and I cooked it slowly over the small stove while the rain drummed on the tin roof. The smell filled the whole house, warm and sweet, and it drew everyone out of their beds one by one, yawning and rubbing their eyes. Your great-grandfather always came in last, wrapped in an old blanket, muttering that the rain was personally insulting him. He would sit at the table, hold his bowl with both hands, and stare at the rain through the window as if it were an old friend who had come to visit. We would eat in silence, listening to the drops, and no one felt the need to speak. Some mornings are for talking. Others are for just being together, warm and fed, while the world is wet and loud outside. Make this porridge for a grey day, and sit quietly with the people you love. The rain still makes the house feel cosy and slow, and the porridge still draws the family out of bed one by one. Your great-grandfather's empty chair is now occupied by the youngest grandchild, who wraps a blanket around her shoulders and stares out at the rain, exactly as he once did. On the rainiest days, the youngest child still asks for the porridge first, and nobody has the heart to tell her that it tastes exactly the same no matter who cooks it. Buyut Sri." },
+  { title: 'A Farewell Meal Before the Long Journey', text: "When your uncle left for a job overseas, the family insisted on giving him a farewell dinner, and I was asked to cook the meal, even though I was already tired from the week's work. I made his favourite dishes: spicy fried chicken, sweet sticky rice with coconut, and a big pot of vegetable soup with carrots and corn. We sat around the table for hours, eating slowly, telling old stories, and crying a little when it was time to say goodbye. He tried to smile, but his voice kept breaking. Before he left the next morning, he hugged me in the doorway and said, Mama, I will find the kitchen again wherever I go. I did not know what to say, so I gave him a small container of the sticky rice, wrapped in a banana leaf, and told him that the rice would taste like home for as long as he remembered to share it. He still makes that sticky rice every year on his birthday, and he sends me a photo each time. Feed the ones who leave, and give them something they can carry in their hearts. Your uncle still sends a photo of his sticky rice every year on his birthday, sometimes with a little yellow flower beside the banana leaf. The photos hang on our kitchen wall now, a row of golden rice and faraway smiles, reminding us that love can cross oceans without losing its warmth. Love, Buyut Sri." },
+  { title: 'The Last Card, for the Ones Still Cooking', text: "My dearest grandchildren, great-grandchildren, and all the young cooks who will one day find this recipe, I have written fifty small memories for you, and I hope they have made you smile, cry, and feel a little closer to the kitchen where your family grew up. I have burnt rice, lost sugar, argued over tomatoes, folded frog-shaped dumplings, and laughed with strangers at a bus station. I have buried friends, welcomed babies, and sent letters across the sea. None of these moments were perfect, but all of them were full of love. Recipes are not really about the food. They are about the hands that stir the pot, the voices that tell the stories, and the hearts that keep saying thank you, even when the kitchen is a mess. So when you cook, remember that you are cooking for everyone who came before you, and for everyone who will come after you. Take your time. Share your food. Laugh at your mistakes. And always, always leave the door open. Now that you have read all fifty of these memories, I hope you will choose one to cook this week, and then tell someone the story behind it. The kitchen is waiting for you, and so is everyone who has ever loved you enough to stir a pot on your behalf. Take your time with the next dish you cook. Let the kitchen be slow, let the people around you talk, and let every small mistake become a story worth telling at the table. With all my love, forever in your kitchen, Buyut Sri." }
+/*CARDS_END*/
+];
+
+// 10 moving places, chosen at random as the family moves through the house
+const PLACES = [
+  { name: 'Family Kitchen',   top: '#f6e3c0', bot: '#e8c08a', el: 'kitchen' },
+  { name: "Grandma's Garden", top: '#bfe6f5', bot: '#e8f7c8', el: 'garden' },
+  { name: 'Porch at Dusk',    top: '#f0b58a', bot: '#7a4a6a', el: 'porch' },
+  { name: 'Rainy Window',     top: '#9fb3c4', bot: '#d7e0e6', el: 'rain' },
+  { name: 'Sunday Breakfast', top: '#fbe9c8', bot: '#f3d3a0', el: 'table' },
+  { name: 'Village Road',     top: '#bfe0f5', bot: '#f5ecd0', el: 'village' },
+  { name: 'Beach Evening',    top: '#f7b98a', bot: '#8fc7d8', el: 'beach' },
+  { name: 'Winter Home',      top: '#c8dcea', bot: '#f2f7fa', el: 'snow' },
+  { name: 'Market Morning',   top: '#ffe2b0', bot: '#f4c58a', el: 'market' },
+  { name: 'Lullaby Night',    top: '#2a2a58', bot: '#6a5a8a', el: 'night' }
+];
+
+// =====================================================================
+// Sound (generated in code). Warm piano, kitchen sounds, a lullaby loop.
+// =====================================================================
+let AC = null, master = null, muted = false, lullStep = 0;
+let roomGain = null;
+const muteBtn = document.getElementById('mute');
+const LULL = [523, 494, 440, 392, 440, 494, 523, 523, 494, 494, 523, 587, 523, 440, 392, 392];
+
+function initAudio() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  master = AC.createGain();
+  master.gain.value = muted ? 0 : 0.5;
+  master.connect(AC.destination);
+  // soft room tone
+  const b = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = AC.createBufferSource(); src.buffer = b; src.loop = true;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 300;
+  roomGain = AC.createGain(); roomGain.gain.value = 0.02;
+  src.connect(f); f.connect(roomGain); roomGain.connect(master); src.start();
+  lullabyLoop();
+  kitchenLoop();
+}
+
+// a soft piano-like note: a bright tone with a gentle decay
+function piano(f, d = 1.2, v = 0.12) {
+  if (!AC || muted) return;
+  const t0 = AC.currentTime;
+  [[f, 1], [f * 2, 0.25], [f * 3, 0.08]].forEach(([freq, k]) => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(v * k, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + d + 0.05);
+  });
+}
+
+function noise(d, v, filterType = 'lowpass', freq = 800) {
+  if (!AC || muted) return;
+  const len = Math.floor(AC.sampleRate * d);
+  const buf = AC.createBuffer(1, len, AC.sampleRate), data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  const src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = buf;
+  f.type = filterType; f.frequency.value = freq;
+  g.gain.setValueAtTime(v, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + d);
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start();
+}
+
+// a lullaby that plays softly all the time
+function lullabyLoop() {
+  if (!AC) return;
+  if (!muted && (state === 'play' || state === 'title' || state === 'select')) {
+    piano(LULL[lullStep % LULL.length] / 2, 1.4, 0.05);
+    if (lullStep % 4 === 0) piano(LULL[lullStep % LULL.length] / 4, 2.2, 0.035);
+  }
+  lullStep++;
+  setTimeout(lullabyLoop, state === 'play' ? 520 : 640);
+}
+
+// the kitchen: a soft clink and a faint whisk now and then
+function kitchenLoop() {
+  if (!AC) return;
+  if (!muted && state === 'play' && Math.random() < 0.3) {
+    piano(2400 + Math.random() * 600, 0.6, 0.015);
+  }
+  setTimeout(kitchenLoop, 1400 + Math.random() * 1600);
+}
+
+const SFX = {
+  catch()     { piano(880, 0.7, 0.13); },
+  bonus()     { piano(1046, 0.5, 0.09); },
+  wrong()     { noise(0.25, 0.18, 'lowpass', 450); piano(196, 0.6, 0.08); },
+  forgot()    { piano(330, 0.9, 0.09); setTimeout(() => piano(262, 1.1, 0.08), 260); },
+  memory()    { noise(0.9, 0.05, 'bandpass', 1200); piano(659, 1.4, 0.07); },
+  served()    { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => piano(f, 1.1, 0.12), i * 130)); },
+  newRecipe() { piano(587, 0.6, 0.08); setTimeout(() => piano(784, 0.8, 0.08), 150); },
+  place()     { noise(0.8, 0.04, 'bandpass', 900); },
+  lost()      { piano(262, 1.2, 0.1); },
+  over()      { [392, 349, 330, 262].forEach((f, i) => setTimeout(() => piano(f, 1.4, 0.1), i * 380)); }
+};
+
+muteBtn.onclick = (e) => {
+  e.stopPropagation();
+  muted = !muted;
+  if (master) master.gain.value = muted ? 0 : 0.5;
+  muteBtn.textContent = muted ? 'Sound: Off' : 'Sound: On';
+  muteBtn.blur();
+};
+
+// =====================================================================
+// Game state
+// =====================================================================
+let state = 'load';                  // 'load' | 'title' | 'select' | 'play' | 'served' | 'over'
+let loadT = 0, t = 0, selIdx = 0, keeper = KEEPERS[0];
+let hearts = 3, score = 0, level = 0, dishes = 0;
+let recipe = [], collected = {};     // indices into MEMORIES
+let items = [];                      // falling ingredients
+let bowlX = W / 2, bowlTarget = W / 2, dragging = false;
+let spawnCD = 0, servedT = 0, memText = '', memT = 0;
+let place = PLACES[0], placeNext = null, placeMix = 1;
+let parts = [], texts = [], shake = 0, overAt = 0, flashT = 0;
+let best = 0;
+try { best = Number(localStorage.getItem('grandmothers_recipe_best') || 0); } catch (e) {}
+
+const HOWTO = { x: 200, y: 1190, w: 320, h: 60 };
+const START = { x: 210, y: 1100, w: 300, h: 76 };
+const CARDS = [0, 1, 2, 3, 4].map(i => ({ x: 30 + (i % 3) * 230, y: 250 + Math.floor(i / 3) * 330, w: 210, h: 300 }));
+const howtoEl = document.getElementById('howto');
+function showHowTo() { howtoEl.classList.add('show'); }
+document.getElementById('closeHow').onclick = () => howtoEl.classList.remove('show');
+
+function recipeSize() { return Math.min(7, 3 + Math.floor(level / 2)); }
+
+function newRecipe() {
+  const pool = MEMORIES.map((_, i) => i);
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  recipe = pool.slice(0, recipeSize());
+  collected = {};
+  for (const m of recipe) collected[m] = false;
+}
+
+function startRun() {
+  keeper = KEEPERS[selIdx];
+  state = 'play';
+  hearts = 3 + keeper.hearts; score = 0; level = 0; dishes = 0;
+  items = []; parts = []; texts = [];
+  bowlX = W / 2; bowlTarget = W / 2;
+  spawnCD = 60; servedT = 0; memT = 0;
+  place = PLACES[Math.floor(Math.random() * PLACES.length)]; placeNext = null; placeMix = 1;
+  newRecipe();
+  SFX.newRecipe();
+}
+
+function endGame() {
+  if (state === 'over') return;
+  state = 'over';
+  overAt = t;
+  SFX.over();
+  if (score > best) {
+    best = score;
+    try { localStorage.setItem('grandmothers_recipe_best', String(best)); } catch (e) {}
+  }
+}
+
+// Memory cards: each card is shown once, in random order, then the deck is reshuffled
+let unseenCards = [];
+function showCard() {
+  if (!unseenCards.length) unseenCards = CARDS_DATA.map((_, i) => i);
+  const k = Math.floor(Math.random() * unseenCards.length);
+  const card = CARDS_DATA[unseenCards.splice(k, 1)[0]];
+  document.getElementById('cardTitle').textContent = card.title;
+  document.getElementById('cardBody').textContent = card.text;
+  document.getElementById('cardBody').scrollTop = 0;
+  document.getElementById('card').classList.add('show');
+  state = 'card';
+  SFX.memory();
+}
+
+document.getElementById('cardBtn').onclick = () => {
+  document.getElementById('card').classList.remove('show');
+  newRecipe();
+  SFX.newRecipe();
+  state = 'play';
+};
+
+function burst(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 1 + Math.random() * 4;
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1.5, life: 44, c: color, r: 3 + Math.random() * 4 });
+  }
+}
+function addText(x, y, s, c) { texts.push({ x, y, s, c, life: 70 }); }
+
+// difficulty grows with score, and there is no upper limit
+function fallSpeed() { return (1.7 + level * 0.14) * keeper.speed; }
+function spawnGap() { return Math.max(34, 92 - level * 5) * (0.7 + Math.random() * 0.6); }
+
+function spawnItem() {
+  const needed = recipe.filter(m => !collected[m]);
+  const pNeeded = 0.45 + Math.min(0.2, level * 0.03);
+  let m;
+  if (needed.length && Math.random() < pNeeded) m = needed[Math.floor(Math.random() * needed.length)];
+  else m = Math.floor(Math.random() * MEMORIES.length);
+  items.push({ m, x: 60 + Math.random() * (W - 120), y: 470, vy: fallSpeed() * (0.9 + Math.random() * 0.25) });
+}
+
+function bowlWidth() { return 170 * keeper.bowl + Math.min(40, level * 2); }
+
+// =====================================================================
+// Update
+// =====================================================================
+function update() {
+  t++;
+  if (placeNext) {
+    placeMix = Math.min(1, placeMix + 1 / 90);
+    if (placeMix >= 1) { place = placeNext; placeNext = null; }
+  }
+  for (const p of parts) { p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.life--; }
+  parts = parts.filter(p => p.life > 0);
+  for (const x of texts) { x.y -= 0.8; x.life--; }
+  texts = texts.filter(x => x.life > 0);
+  if (shake > 0) { shake *= 0.85; if (shake < 0.5) shake = 0; }
+  if (flashT > 0) flashT--;
+  if (memT > 0) memT--;
+
+  if (state === 'served') {
+    servedT--;
+    if (servedT <= 0) {
+      if (score >= 100) showCard();
+      else { newRecipe(); SFX.newRecipe(); state = 'play'; }
+    }
+    return;
+  }
+  if (state !== 'play') return;
+
+  // the bowl follows the finger
+  bowlX += (bowlTarget - bowlX) * keeper.follow;
+  const half = bowlWidth() / 2;
+  bowlX = Math.max(half + 10, Math.min(W - half - 10, bowlX));
+
+  // new ingredients
+  spawnCD--;
+  if (spawnCD <= 0) { spawnItem(); spawnCD = spawnGap(); }
+
+  // falling and catching
+  for (const it of items) {
+    it.y += it.vy;
+    if (it.dead) continue;
+    if (it.y >= BOWL_Y - 30 && it.y <= BOWL_Y + 40 && Math.abs(it.x - bowlX) < half) {
+      it.dead = true;
+      catchItem(it);
+    } else if (it.y > H + 40) {
+      it.dead = true;
+      if (recipe.includes(it.m) && !collected[it.m]) loseHeart('Forgotten ' + MEMORIES[it.m][1] + '!');
+    }
+  }
+  items = items.filter(it => !it.dead);
+
+  // a new place every 100 points
+  if (score >= (level + 1) * 100) {
+    level++;
+    const others = PLACES.filter(p => p !== place);
+    placeNext = others[Math.floor(Math.random() * others.length)];
+    placeMix = 0;
+    addText(W / 2, 470, 'LEVEL ' + (level + 1), '#8a4a1e');
+    SFX.newRecipe();
+  }
+}
+
+function catchItem(it) {
+  const m = MEMORIES[it.m];
+  if (recipe.includes(it.m)) {
+    if (!collected[it.m]) {
+      collected[it.m] = true;
+      score += 10;
+      SFX.catch();
+      burst(it.x, BOWL_Y - 20, '#ffd27a', 14);
+      addText(it.x, BOWL_Y - 60, '+10', '#8a4a1e');
+      memText = m[2];
+      memT = 240;
+      SFX.memory();
+      score += keeper.bonus;
+      if (recipe.every(r => collected[r])) completeDish();
+    } else {
+      score += 2;
+      SFX.bonus();
+    }
+  } else {
+    loseHeart('Wrong ingredient: ' + m[1] + '!');
+  }
+}
+
+function completeDish() {
+  dishes++;
+  score += 50 + level * 5;
+  SFX.served();
+  burst(W / 2, 700, '#ffd27a', 40);
+  addText(W / 2, 760, 'SERVED WITH LOVE!', '#8a4a1e');
+  state = 'served';
+  servedT = 150;
+}
+
+function loseHeart(why) {
+  hearts--;
+  shake = 8;
+  flashT = 14;
+  SFX.wrong();
+  addText(W / 2, 1000, why, '#b03a2a');
+  burst(bowlX, BOWL_Y, '#b03a2a', 10);
+  if (hearts <= 0) endGame();
+}
+
+// =====================================================================
+// Draw: ten moving places
+// =====================================================================
+function mixC(a, b, k) {
+  const pa = [parseInt(a.slice(1, 3), 16), parseInt(a.slice(3, 5), 16), parseInt(a.slice(5, 7), 16)];
+  const pb = [parseInt(b.slice(1, 3), 16), parseInt(b.slice(3, 5), 16), parseInt(b.slice(5, 7), 16)];
+  return 'rgb(' + pa.map((v, i) => Math.round(v + (pb[i] - v) * k)).join(',') + ')';
+}
+
+function drawPlace(p, alpha) {
+  ctx.globalAlpha = alpha;
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, p.top); g.addColorStop(1, p.bot);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const off = (t * 0.3);
+  switch (p.el) {
+    case 'kitchen':
+      ctx.fillStyle = 'rgba(255,255,230,0.3)';
+      for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(180 + i * 160, 0); ctx.lineTo(260 + i * 160, 0); ctx.lineTo(160 + i * 160, H); ctx.lineTo(90 + i * 160, H); ctx.closePath(); ctx.fill(); }
+      ctx.fillStyle = '#c9a074'; ctx.fillRect(0, 1080, W, 200);
+      break;
+    case 'garden':
+      for (let i = 0; i < 10; i++) {
+        const x = (i * 90 + off) % (W + 90) - 45, y = 1080 - 30 - (i % 3) * 20;
+        ctx.fillStyle = '#7ab86a'; ctx.fillRect(x - 2, y, 4, 40);
+        ctx.fillStyle = ['#ff9ab0', '#ffe27a', '#c6a6ff'][i % 3];
+        ctx.beginPath(); ctx.arc(x, y - 4 + Math.sin(t * 0.04 + i) * 3, 12, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = '#8fc070'; ctx.fillRect(0, 1080, W, 200);
+      break;
+    case 'porch':
+      for (let i = 0; i < 12; i++) {
+        const x = (i * 62 + off * 0.5) % W, y = 260 + Math.sin(t * 0.03 + i) * 6;
+        ctx.fillStyle = i % 2 ? '#ffe27a' : '#ffd0a0';
+        ctx.beginPath(); ctx.arc(x, y + 80, 8, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.strokeStyle = '#5a3a2a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 360); ctx.lineTo(W, 360); ctx.stroke();
+      ctx.fillStyle = '#6a4a3a'; ctx.fillRect(0, 1080, W, 200);
+      break;
+    case 'rain':
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2;
+      for (let i = 0; i < 60; i++) {
+        const x = (i * 53) % W, y = (i * 97 + t * 9) % H;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 4, y + 18); ctx.stroke();
+      }
+      ctx.fillStyle = '#7a8a94'; ctx.fillRect(0, 1080, W, 200);
+      break;
+    case 'table':
+      ctx.fillStyle = '#e0a070'; ctx.fillRect(0, 1080, W, 200);
+      ctx.fillStyle = '#fff3d8';
+      for (let i = 0; i < 9; i++) ctx.fillRect(i * 90 - 8, 1080, 16, 200);
+      ctx.fillStyle = '#e8d8c0'; ctx.beginPath(); ctx.arc(360, 1040, 110, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'village':
+      for (let i = 0; i < 5; i++) {
+        const x = ((i * 180 - off * 0.8) % (W + 180)) - 90;
+        ctx.fillStyle = ['#e8b890', '#c9a0a0', '#f0d8a0'][i % 3];
+        ctx.fillRect(x - 60, 760, 120, 200);
+        ctx.fillStyle = '#9a5a4a'; ctx.beginPath(); ctx.moveTo(x - 72, 760); ctx.lineTo(x, 680); ctx.lineTo(x + 72, 760); ctx.fill();
+      }
+      ctx.fillStyle = '#8a9a6a'; ctx.fillRect(0, 960, W, 320);
+      break;
+    case 'beach':
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      for (let i = 0; i < 3; i++) { const y = 880 + i * 40 + Math.sin(t * 0.03 + i) * 6; ctx.fillRect(0, y, W, 4); }
+      ctx.fillStyle = '#f0d8a0'; ctx.fillRect(0, 1000, W, 280);
+      ctx.fillStyle = '#ffe27a'; ctx.beginPath(); ctx.arc(560, 260, 60, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'snow':
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 40; i++) {
+        const x = (i * 71 + Math.sin(t * 0.01 + i) * 20) % W, y = (i * 53 + t * 1.5) % H;
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 1080, W, 200);
+      break;
+    case 'market':
+      for (let i = 0; i < 5; i++) {
+        const x = i * 150 - (off % 150);
+        ctx.fillStyle = i % 2 ? '#e87a6a' : '#f0c060';
+        ctx.beginPath(); ctx.moveTo(x - 20, 300); ctx.lineTo(x + 130, 300); ctx.lineTo(x + 140, 360); ctx.lineTo(x - 30, 360); ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle = '#b08a60'; ctx.fillRect(0, 1080, W, 200);
+      break;
+    case 'night':
+      ctx.fillStyle = '#fff6d0';
+      for (let i = 0; i < 30; i++) ctx.fillRect((i * 97) % W, (i * 61) % 600, 2, 2);
+      ctx.fillStyle = '#fff3c4'; ctx.beginPath(); ctx.arc(600, 180, 46, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#3a3a6a'; ctx.fillRect(0, 1080, W, 200);
+      break;
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBG() {
+  drawPlace(place, 1);
+  if (placeNext) drawPlace(placeNext, placeMix);
+}
+
+// =====================================================================
+// Draw: recipe card, bowl, ingredients, and the family
+// =====================================================================
+function drawCard() {
+  ctx.save();
+  ctx.translate(CARD.x, CARD.y);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(6, 8, CARD.w, CARD.h);
+  ctx.fillStyle = '#fbf3e4'; ctx.fillRect(0, 0, CARD.w, CARD.h);
+  ctx.strokeStyle = '#b5703a'; ctx.lineWidth = 4; ctx.strokeRect(10, 10, CARD.w - 20, CARD.h - 20);
+  ctx.fillStyle = '#8a4a1e'; ctx.font = 'bold 32px Georgia'; ctx.textAlign = 'center';
+  ctx.fillText("Grandma's Recipe", CARD.w / 2, 52);
+  ctx.font = 'italic 18px Georgia';
+  ctx.fillStyle = '#6a4a2e';
+  ctx.fillText('Level ' + (level + 1) + ' · ' + recipe.length + ' ingredients', CARD.w / 2, 80);
+  recipe.forEach((m, i) => {
+    const col = i % 2, row = Math.floor(i / 2);
+    const x = 60 + col * 250, y = 120 + row * 46;
+    ctx.textAlign = 'left';
+    ctx.font = '30px Arial';
+    ctx.fillText(MEMORIES[m][0], x, y + 8);
+    ctx.font = '22px Georgia';
+    ctx.fillStyle = collected[m] ? '#4a8a4a' : '#3a2a1e';
+    ctx.fillText(MEMORIES[m][1] + (collected[m] ? '  ✓' : ''), x + 42, y + 6);
+    ctx.fillStyle = '#6a4a2e';
+  });
+  ctx.restore();
+}
+
+function drawMemory() {
+  if (memT <= 0) return;
+  ctx.globalAlpha = Math.min(1, memT / 40);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fbf3e4';
+  ctx.font = 'italic 24px Georgia';
+  wrapText(memText, W / 2, 500, 560, 24, '#fbf3e4', true);
+  ctx.globalAlpha = 1;
+}
+
+function drawBowl() {
+  const w = bowlWidth(), x = bowlX, y = BOWL_Y;
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath(); ctx.ellipse(x, y + 46, w / 2, 14, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#e8d8c0';
+  ctx.beginPath(); ctx.moveTo(x - w / 2, y); ctx.lineTo(x + w / 2, y);
+  ctx.quadraticCurveTo(x + w / 2, y + 60, x, y + 60);
+  ctx.quadraticCurveTo(x - w / 2, y + 60, x - w / 2, y);
+  ctx.fill();
+  ctx.fillStyle = '#c98a5a';
+  ctx.beginPath(); ctx.ellipse(x, y, w / 2, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#8a5a3a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.ellipse(x, y, w / 2, 12, 0, 0, Math.PI * 2); ctx.stroke();
+}
+
+function drawItems() {
+  for (const it of items) {
+    const m = MEMORIES[it.m];
+    const needed = recipe.includes(it.m) && !collected[it.m];
+    ctx.save();
+    if (needed) {
+      ctx.fillStyle = 'rgba(255,214,120,0.55)';
+      ctx.beginPath(); ctx.arc(it.x, it.y, 46, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.font = '64px Arial'; ctx.textAlign = 'center';
+    ctx.fillText(m[0], it.x, it.y + 22);
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.fillText(m[1], it.x, it.y + 52);
+    ctx.restore();
+  }
+}
+
+// draw a family member, with a simple face, hair, clothes, and an accessory
+function drawKeeper(c, x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = c.top; ctx.beginPath(); ctx.ellipse(0, 70, 56, 60, 0, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = c.top; ctx.fillRect(-56, 70, 112, 60);
+  ctx.fillStyle = c.skin; ctx.beginPath(); ctx.arc(0, -4, 38, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = c.hair;
+  if (c.extra === 'ponytail') {
+    ctx.beginPath(); ctx.arc(0, -22, 42, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(44, -10, 12, 28, 0.3, 0, Math.PI * 2); ctx.fill();
+  } else if (c.extra === 'cap') {
+    ctx.beginPath(); ctx.arc(0, -20, 40, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = c.top; ctx.fillRect(-44, -26, 88, 10);
+  } else if (c.extra === 'glasses') {
+    ctx.beginPath(); ctx.arc(0, -24, 40, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -36, 22, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(0, -24, 40, Math.PI, 0); ctx.fill();
+  }
+  ctx.fillStyle = '#2a1a12';
+  ctx.beginPath(); ctx.arc(-14, -4, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(14, -4, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#8a4a3a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(0, 16, 12, 0.2, Math.PI - 0.2); ctx.stroke();
+  if (c.extra === 'glasses') {
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(-14, -4, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(14, -4, 9, 0, Math.PI * 2); ctx.stroke();
+  }
+  if (c.extra === 'apron') {
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(-30, 80, 60, 50);
+  }
+  ctx.restore();
+}
+
+function drawHUD() {
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fbf3e4';
+  ctx.font = 'bold 56px Georgia';
+  ctx.fillText(String(score), 30, 80);
+  ctx.font = '22px Georgia';
+  ctx.fillStyle = 'rgba(251,243,228,0.85)';
+  ctx.fillText('BEST ' + best, 30, 116);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#ffb3a0';
+  ctx.font = 'bold 40px Arial';
+  let h = '';
+  for (let i = 0; i < 3 + keeper.hearts; i++) h += i < hearts ? '♥ ' : '♡ ';
+  ctx.fillText(h.trim(), W - 30, 80);
+  ctx.fillStyle = 'rgba(251,243,228,0.85)';
+  ctx.font = '22px Georgia';
+  ctx.fillText('Dishes ' + dishes, W - 30, 116);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(251,243,228,0.9)';
+  ctx.font = '22px Georgia';
+  ctx.fillText(keeper.name + ' · ' + place.name, W / 2, 1230);
+  ctx.font = 'italic 20px Georgia';
+  ctx.fillText('Drag the bowl under the ingredients you need', W / 2, 1262);
+}
+
+function wrapText(txt, x, y, maxW, size, color, centered = false) {
+  ctx.font = 'italic ' + size + 'px Georgia';
+  ctx.fillStyle = color;
+  ctx.textAlign = centered ? 'center' : 'left';
+  const words = txt.split(' ');
+  let line = '', yy = y;
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) { ctx.fillText(line, x, yy); line = w; yy += size + 6; }
+    else line = test;
+  }
+  if (line) ctx.fillText(line, x, yy);
+}
+
+function drawText(txt, x, y, size, color, alpha = 1, align = 'center') {
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = align;
+  ctx.fillStyle = color;
+  ctx.font = 'bold ' + size + 'px Georgia';
+  ctx.fillText(txt, x, y);
+  ctx.globalAlpha = 1;
+}
+
+function drawPlay() {
+  drawBG();
+  drawCard();
+  drawItems();
+  drawBowl();
+  for (const p of parts) {
+    ctx.globalAlpha = Math.max(0, p.life / 44);
+    ctx.fillStyle = p.c;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  drawMemory();
+  for (const x of texts) drawText(x.s, x.x, x.y, 30, x.c, Math.min(1, x.life / 25));
+  if (flashT > 0) { ctx.fillStyle = 'rgba(176,58,42,' + (flashT / 30) + ')'; ctx.fillRect(0, 0, W, H); }
+  drawHUD();
+  if (state === 'served') {
+    ctx.fillStyle = 'rgba(255,240,210,0.35)';
+    ctx.fillRect(0, 0, W, H);
+    drawText('Dinner is served', W / 2, 640, 50, '#8a4a1e');
+  }
+}
+
+function drawLoad() {
+  ctx.fillStyle = '#2a1a12'; ctx.fillRect(0, 0, W, H);
+  drawText('Sastra Jendra Development', W / 2, 420, 34, '#ffd27a');
+  drawText('presents', W / 2, 460, 24, 'rgba(251,243,228,0.85)');
+  drawText("Grandmother's", W / 2, 580, 58, '#fbf3e4');
+  drawText('Recipe', W / 2, 655, 58, '#fbf3e4');
+  const p = Math.min(1, loadT / 180);
+  ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(160, 780, 400, 18);
+  ctx.fillStyle = '#ffd27a'; ctx.fillRect(160, 780, 400 * p, 18);
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2; ctx.strokeRect(160, 780, 400, 18);
+  drawText('Loading... ' + Math.floor(p * 100) + '%', W / 2, 830, 24, 'rgba(251,243,228,0.85)');
+  if (p >= 1 && Math.floor(t / 30) % 2 === 0) drawText('TAP TO START', W / 2, 960, 44, '#fbf3e4');
+}
+
+function drawTitle() {
+  drawPlace(PLACES[0], 1);
+  ctx.fillStyle = 'rgba(42,26,18,0.45)';
+  ctx.fillRect(0, 170, W, 380);
+  drawText("Grandmother's", W / 2, 300 + Math.sin(t * 0.04) * 4, 60, '#ffd27a');
+  drawText('Recipe', W / 2, 380 + Math.sin(t * 0.04 + 1) * 4, 60, '#fbf3e4');
+  drawText('Catch the ingredients. Keep the memories.', W / 2, 460, 26, '#fbf3e4');
+  drawText('Sastra Jendra Development', W / 2, 500, 22, 'rgba(251,243,228,0.85)');
+  drawKeeper(KEEPERS[0], W / 2, 900, 1.2);
+  ctx.fillStyle = '#b5703a';
+  ctx.fillRect(START.x, START.y, START.w, START.h);
+  drawText('START', W / 2, START.y + 50, 40, '#fff');
+  ctx.fillStyle = '#b5703a';
+  ctx.fillRect(HOWTO.x, HOWTO.y, HOWTO.w, HOWTO.h);
+  drawText('HOW TO PLAY', W / 2, HOWTO.y + 42, 30, '#fff');
+  drawText('Best: ' + best, W / 2, 1250, 26, 'rgba(251,243,228,0.85)');
+}
+
+function wrapCard(c, x, y, w) { wrapText(c.perk, x, y, w, 17, 'rgba(251,243,228,0.9)', true); }
+
+function drawSelect() {
+  drawPlace(PLACES[1], 1);
+  ctx.fillStyle = 'rgba(42,26,18,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  drawText('CHOOSE WHO IS COOKING', W / 2, 170, 42, '#ffd27a');
+  drawText('Each family member has a small gift.', W / 2, 212, 22, 'rgba(251,243,228,0.85)');
+  KEEPERS.forEach((c, i) => {
+    const r = CARDS[i];
+    ctx.fillStyle = i === selIdx ? 'rgba(255,210,120,0.35)' : 'rgba(255,255,255,0.12)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = i === selIdx ? '#ffd27a' : 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = i === selIdx ? 4 : 2;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    drawKeeper(c, r.x + r.w / 2, r.y + 110, 0.85);
+    drawText(c.name, r.x + r.w / 2, r.y + 210, 22, '#fbf3e4');
+    wrapCard(c, r.x + r.w / 2, r.y + 240, r.w - 24);
+  });
+  ctx.fillStyle = '#b5703a';
+  ctx.fillRect(START.x, START.y, START.w, START.h);
+  drawText('START', W / 2, START.y + 50, 40, '#fff');
+}
+
+function drawOver() {
+  drawPlay();
+  ctx.fillStyle = 'rgba(42,26,18,0.7)';
+  ctx.fillRect(0, 0, W, H);
+  drawText('Dinner is over', W / 2, 440, 54, '#ffd27a');
+  drawText('Score ' + score, W / 2, 530, 50, '#fbf3e4');
+  drawText('Dishes served ' + dishes + ' · Level ' + (level + 1), W / 2, 585, 28, '#fbf3e4');
+  drawText('Best ' + best, W / 2, 635, 32, '#ffd27a');
+  if (t - overAt > 40 && Math.floor(t / 30) % 2 === 0) drawText('TAP TO COOK AGAIN', W / 2, 760, 42, '#fbf3e4');
+  drawText('Tap to choose another cook', W / 2, 810, 22, 'rgba(251,243,228,0.85)');
+}
+
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  if (state === 'load') drawLoad();
+  else if (state === 'title') drawTitle();
+  else if (state === 'select') drawSelect();
+  else if (state === 'over') drawOver();
+  else drawPlay();
+}
+
+function loop() {
+  if (state === 'load') loadT = Math.min(180, loadT + 1);
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+// =====================================================================
+// Input: drag left or right to move the bowl
+// =====================================================================
+function toLogical(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  initAudio();
+  const p = toLogical(e);
+  if (state === 'load') { if (loadT >= 180) state = 'title'; return; }
+  if (state === 'title') {
+    if (inRect(p, HOWTO)) { showHowTo(); return; }
+    if (inRect(p, START)) state = 'select';
+    return;
+  }
+  if (state === 'select') {
+    CARDS.forEach((r, i) => { if (inRect(p, r)) selIdx = i; });
+    if (inRect(p, START)) startRun();
+    return;
+  }
+  if (state === 'over') { if (t - overAt > 40) state = 'select'; return; }
+  dragging = true;
+  bowlTarget = p.x;
+});
+
+cv.addEventListener('pointermove', e => {
+  if (!dragging || state === 'over') return;
+  bowlTarget = toLogical(e).x;
+});
+
+function release() { dragging = false; }
+addEventListener('pointerup', release);
+addEventListener('pointercancel', release);
+
+// keyboard: Left and Right move the bowl, Space starts
+const keys = {};
+addEventListener('keydown', e => {
+  if (howtoEl.classList.contains('show')) return;
+  initAudio();
+  if (e.code === 'ArrowLeft') { keys.left = true; e.preventDefault(); }
+  if (e.code === 'ArrowRight') { keys.right = true; e.preventDefault(); }
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (state === 'title') state = 'select';
+    else if (state === 'select') startRun();
+    else if (state === 'over' && t - overAt > 40) state = 'select';
+  }
+});
+addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft') keys.left = false;
+  if (e.code === 'ArrowRight') keys.right = false;
+});
+setInterval(() => {
+  if (state !== 'play' && state !== 'served') return;
+  if (keys.left) bowlTarget = Math.max(0, bowlTarget - 12);
+  if (keys.right) bowlTarget = Math.min(W, bowlTarget + 12);
+}, 16);
+
+muteBtn.addEventListener('pointerdown', e => e.stopPropagation());
+
+document.addEventListener('visibilitychange', () => {
+  if (!AC) return;
+  if (document.hidden && AC.state === 'running') AC.suspend();
+  if (!document.hidden && AC.state === 'suspended') AC.resume();
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

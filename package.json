@@ -1,0 +1,45 @@
+{
+  "name": "grandmothers-recipe",
+  "productName": "Grandmother's Recipe: Notes from Buyut",
+  "version": "1.0.0",
+  "description": "Grandmother's Recipe: Notes from Buyut by Sastra Jendra Development. Catch the ingredients, finish each family recipe, and open a handwritten memory from Great-Grandma Sri.",
+  "author": "Sastra Jendra Development",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build": "electron-builder --win --mac"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.sastrajendra.grandmasrecipe",
+    "productName": "Grandmother's Recipe: Notes from Buyut",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "main.js",
+      "package.json",
+      "icon-512.png"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "icon-512.png"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.games",
+      "icon": "icon-512.png"
+    }
+  }
+}
