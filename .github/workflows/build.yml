@@ -35,3 +35,34 @@ jobs:
         with:
           name: mac-build
           path: dist/*.dmg
+
+  publish:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: out/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+          path: out/mac
+      - name: Prepare web build
+        run: |
+          mkdir -p out/web
+          cp index.html icon-512.png out/web/
+      - name: Install butler
+        run: |
+          curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip butler.zip
+          chmod +x butler
+          ./butler -V
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          ./butler push out/web sastrajendra/grandmothers-recipe:html5 --userversion ${{ github.sha }}
+          ./butler push out/windows sastrajendra/grandmothers-recipe:windows --userversion ${{ github.sha }}
+          ./butler push out/mac sastrajendra/grandmothers-recipe:osx --userversion ${{ github.sha }}
